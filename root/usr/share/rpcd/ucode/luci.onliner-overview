@@ -24,14 +24,22 @@ function load_dhcp_leases() {
 	let leases = {};
 	let text = read_text('/tmp/dhcp.leases');
 	let lns = get_lines(text);
+	let now = time(); 
 
 	for (let i = 0; i < length(lns); i++) {
 		let p = split_ws(lns[i]);
 		if (length(p) >= 4) {
+			let ts = int(p[0]); 
 			let mac = norm_mac(p[1]);
 			let hostname = p[3];
 			if (hostname == '*' || hostname == '-') hostname = '?';
-			leases[mac] = { ipaddr: p[2], hostname: hostname };
+			
+			// 计算剩余秒数
+			let rem = ts - now;
+			// 只有正常未过期的正数秒才记录，否则按 0 处理
+			if (rem < 0) rem = 0;
+
+			leases[mac] = { ipaddr: p[2], hostname: hostname, expires: rem };
 		}
 	}
 	return leases;
@@ -60,20 +68,22 @@ function load_ipv4_arp_users() {
 				hostname: leases[mac] ? leases[mac].hostname : '?',
 				ipaddr: ip,
 				macaddr: mac,
-				device: dev
+				device: dev,
+				expires: leases[mac] ? leases[mac].expires : '-' // 找不到租期记录的设备统一归为 '-'
 			};
 		} else {
 			if (index(users[mac].ipaddr, ip) < 0)
 				users[mac].ipaddr = users[mac].ipaddr + '/' + ip;
 			if (!users[mac].device && dev)
 				users[mac].device = dev;
+			if ((users[mac].expires == null || users[mac].expires == '-') && leases[mac])
+				users[mac].expires = leases[mac].expires;
 		}
 	}
 	return users;
 }
 
 function merge_ipv6_neighbors(users) {
-	// 恢复：不默认屏蔽 fe80:
 	let fd = popen("ip -6 neigh show 2>/dev/null");
 	if (!fd) return users;
 
@@ -97,7 +107,8 @@ function merge_ipv6_neighbors(users) {
 		if (!mac) continue;
 
 		if (!users[mac]) {
-			users[mac] = { hostname: '?', ipaddr: ip6, macaddr: mac, device: dev };
+			// IPv6 独立设备默认没有 DHCPv4 租期概念，初始化为 '-'
+			users[mac] = { hostname: '?', ipaddr: ip6, macaddr: mac, device: dev, expires: '-' };
 		} else {
 			if (index(users[mac].ipaddr, ip6) < 0) {
 				users[mac].ipaddr = users[mac].ipaddr ? users[mac].ipaddr + '/' + ip6 : ip6;
@@ -172,7 +183,8 @@ function get_userlist() {
 		if (!users[mac]) {
 			users[mac] = {
 				hostname: '?', ipaddr: '-', macaddr: mac, device: 'WLAN',
-				is_wifi: true, signal: wifi_users[mac].signal, ssid: wifi_users[mac].ssid
+				is_wifi: true, signal: wifi_users[mac].signal, ssid: wifi_users[mac].ssid,
+				expires: '-'
 			};
 		}
 	}
