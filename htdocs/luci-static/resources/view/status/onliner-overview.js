@@ -9,7 +9,6 @@ var callOnlineUserlist = rpc.declare({
 	expect: { userlist: [] }
 });
 
-// 全局状态变量
 var activeFilter = 'all';
 var filterHideFe80 = false;
 var filterIPv4Only = false;
@@ -38,20 +37,33 @@ function renderNetworkStatus(info) {
 		]);
 	}
 
-	var sig = parseInt(info.signal) || -100;
-	var sigColor = '#27ae60';
-	if (sig < -80) sigColor = '#c0392b';
-	else if (sig < -70) sigColor = '#d35400';
-	else if (sig < -60) sigColor = '#f39c12';
-
 	return E('div', { 'style': 'display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;' }, [
 		E('span', { 'class': 'label success', 'style': 'margin: 0; background-color: #2980b9; font-size: 0.85em;' }, [
 			'📶 ' + (info.ssid || 'Wi-Fi')
 		]),
-		E('span', { 'style': 'font-size: 0.9em; font-weight: bold; color: ' + sigColor }, [
+		E('span', { 'style': 'font-size: 0.9em; font-weight: bold;' }, [
 			info.signal + ' dBm'
 		])
 	]);
+}
+
+// 优化时间显示格式：例如 1h 39m 38s 
+function formatLeaseTime(expires) {
+	// 如果不是数字，或者小于等于 0 (后端未找到或静态)，直接显示 "-"
+	if (expires === undefined || expires === null || expires === '-' || typeof expires !== 'number' || expires <= 0) {
+		return '-';
+	}
+	
+	var h = Math.floor(expires / 3600);
+	var m = Math.floor((expires % 3600) / 60);
+	var s = expires % 60;
+
+	var res = [];
+	if (h > 0) res.push(h + 'h');
+	if (m > 0 || h > 0) res.push(m + 'm');
+	res.push(s + 's');
+
+	return res.join(' ');
 }
 
 function cleanIpAddressByFlags(ipStr) {
@@ -74,7 +86,6 @@ function cleanIpAddressByFlags(ipStr) {
 	return retained.join('/');
 }
 
-// 渲染控制栏（已彻底剔除重启 rpcd 按钮）
 function renderControlBar(list, container, updateCallback, tableUpdateCallback) {
 	var cAll = list.length;
 	var cWifi = 0, cWired = 0;
@@ -159,7 +170,7 @@ function renderControlBar(list, container, updateCallback, tableUpdateCallback) 
 					'value': searchTerm,
 					'input': function(ev) {
 						searchTerm = ev.target.value.trim().toLowerCase();
-						tableUpdateCallback(); // 顺滑输入焦点修复
+						tableUpdateCallback(); 
 					}
 				})
 			]),
@@ -181,6 +192,7 @@ function renderUserTable(list) {
 			E('th', { 'class': 'th' }, _('IP Address')),
 			E('th', { 'class': 'th' }, _('MAC address')),
 			E('th', { 'class': 'th' }, _('Interface')),
+			E('th', { 'class': 'th' }, _('Expires In')), // 规范列名为 Expires In
 			E('th', { 'class': 'th' }, _('Network / Signal'))
 		])
 	]);
@@ -221,7 +233,7 @@ function renderUserTable(list) {
 
 	if (!displayRows.length) {
 		table.appendChild(E('tr', { 'class': 'tr' }, [
-			E('td', { 'class': 'td', 'colspan': '5' }, _('No matching online users'))
+			E('td', { 'class': 'td', 'colspan': '6' }, _('No matching online users'))
 		]));
 		return table;
 	}
@@ -231,7 +243,6 @@ function renderUserTable(list) {
 	});
 
 	displayRows.forEach(function(info) {
-		// 功能增强：将 MAC 地址包装为可在全新窗口打开的 OUI 厂商查询超链接
 		var macNode = '-';
 		if (info.macaddr) {
 			macNode = E('a', {
@@ -247,6 +258,7 @@ function renderUserTable(list) {
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, renderIPAddress(info.ipaddr)),
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, macNode),
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, info.device || '-'),
+			E('td', { 'class': 'td', 'style': 'vertical-align: middle; font-family: monospace;' }, formatLeaseTime(info.expires)), // 渲染优化的时间
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, renderNetworkStatus(info))
 		]));
 	});
@@ -269,7 +281,7 @@ return view.extend({
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Online User Overview')),
 			E('div', { 'class': 'cbi-map-descr' }, _('Real-time display of currently connected wired and wireless clients.')),
-			E('div', { 'class': 'cbi-map-descr' }, _('后端命令 ubus list | grep luci.onliner ，ubus call luci.onliner getOnlineUserlist')),
+			E('div', { 'class': 'cbi-map-descr' }, _('后端命令 ubus list | grep luci.onliner，ubus call luci.onliner getOnlineUserlist')),
 			E('div', { 'id': 'onliner-content-area' })
 		]);
 
@@ -310,7 +322,7 @@ return view.extend({
 					refreshAllContents(newData);
 				}
 			});
-		}, 300);
+		}, 60);
 
 		return container;
 	}
