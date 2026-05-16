@@ -87,3 +87,6 @@ msgstr "当前没有在线用户"
 
 msgid "No matching online users"
 msgstr "没有满足当前过滤条件的在线用户"
+
+msgid "Expires In"
+msgstr "租期剩余"
