@@ -269,6 +269,7 @@ return view.extend({
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Online User Overview')),
 			E('div', { 'class': 'cbi-map-descr' }, _('Real-time display of currently connected wired and wireless clients.')),
+			E('div', { 'class': 'cbi-map-descr' }, _('后端命令 ubus list | grep luci.onliner ，ubus call luci.onliner getOnlineUserlist')),
 			E('div', { 'id': 'onliner-content-area' })
 		]);
 
