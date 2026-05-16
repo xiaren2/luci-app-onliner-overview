@@ -67,6 +67,20 @@ msgstr "纯 IPv4"
 msgid "IPv6 Only"
 msgstr "纯 IPv6"
 
+# 搜索框与动作按钮翻译
+msgid "Search"
+msgstr "搜索"
+
+msgid "Search Hostname, IP, MAC..."
+msgstr "搜索主机名、IP、MAC..."
+
+msgid "Force Refresh"
+msgstr "强制刷新"
+
+# MAC 悬停提示翻译
+msgid "Click to query MAC vendor in a new window"
+msgstr "点击在新窗口中查询该 MAC 的厂商信息"
+
 #: htdocs/luci-static/resources/view/onliner-overview/overview.js:27
 msgid "No online users"
 msgstr "当前没有在线用户"
