@@ -4,27 +4,16 @@ import { readfile, popen } from 'fs';
 
 function read_text(path) {
 	let data = readfile(path);
-
-	if (data == null)
-		return '';
-
-	return data;
+	return (data == null) ? '' : data;
 }
 
 function get_lines(text) {
 	text = trim(text || '');
-
-	if (!text)
-		return [];
-
-	return split(text, '\n');
+	return text ? split(text, '\n') : [];
 }
 
 function norm_mac(mac) {
-	if (!mac)
-		return '';
-
-	return lc(mac);
+	return mac ? lc(mac) : '';
 }
 
 function split_ws(line) {
@@ -38,25 +27,13 @@ function load_dhcp_leases() {
 
 	for (let i = 0; i < length(lns); i++) {
 		let p = split_ws(lns[i]);
-
-		/*
-		 * /tmp/dhcp.leases format:
-		 * expiry mac ip hostname clientid
-		 */
 		if (length(p) >= 4) {
 			let mac = norm_mac(p[1]);
 			let hostname = p[3];
-
-			if (hostname == '*' || hostname == '-')
-				hostname = '?';
-
-			leases[mac] = {
-				ipaddr: p[2],
-				hostname: hostname
-			};
+			if (hostname == '*' || hostname == '-') hostname = '?';
+			leases[mac] = { ipaddr: p[2], hostname: hostname };
 		}
 	}
-
 	return leases;
 }
 
@@ -68,27 +45,14 @@ function load_ipv4_arp_users() {
 
 	for (let i = 1; i < length(lns); i++) {
 		let p = split_ws(lns[i]);
-
-		/*
-		 * /proc/net/arp format:
-		 * IP address HW type Flags HW address Mask Device
-		 */
-		if (length(p) < 6)
-			continue;
+		if (length(p) < 6) continue;
 
 		let ip = p[0];
 		let flags = p[2];
 		let mac = norm_mac(p[3]);
 		let dev = p[5];
 
-		if (!mac || mac == '00:00:00:00:00:00')
-			continue;
-
-		/*
-		 * 0x2 = complete
-		 * 0x6 = complete + permanent / published in some cases
-		 */
-		if (flags != '0x2' && flags != '0x6')
+		if (!mac || mac == '00:00:00:00:00:00' || flags != '0x2' && flags != '0x6')
 			continue;
 
 		if (!users[mac]) {
@@ -101,77 +65,119 @@ function load_ipv4_arp_users() {
 		} else {
 			if (index(users[mac].ipaddr, ip) < 0)
 				users[mac].ipaddr = users[mac].ipaddr + '/' + ip;
-
 			if (!users[mac].device && dev)
 				users[mac].device = dev;
 		}
 	}
-
 	return users;
 }
 
 function merge_ipv6_neighbors(users) {
-	let fd = popen("ip -6 neigh show 2>/dev/null | grep -v ' fe80:'");
-
-	if (!fd)
-		return users;
+	// 恢复：不默认屏蔽 fe80:
+	let fd = popen("ip -6 neigh show 2>/dev/null");
+	if (!fd) return users;
 
 	let text = fd.read('all');
 	fd.close();
 
 	let lns = get_lines(text);
-
 	for (let n = 0; n < length(lns); n++) {
 		let p = split_ws(lns[n]);
-
-		/*
-		 * Example:
-		 * 240e:xxxx::123 dev br-lan lladdr aa:bb:cc:dd:ee:ff STALE
-		 */
-		if (length(p) < 5)
-			continue;
+		if (length(p) < 5) continue;
 
 		let ip6 = p[0];
 		let dev = '';
 		let mac = '';
 
 		for (let i = 1; i < length(p); i++) {
-			if (p[i] == 'dev' && i + 1 < length(p))
-				dev = p[i + 1];
-
-			if (p[i] == 'lladdr' && i + 1 < length(p))
-				mac = norm_mac(p[i + 1]);
+			if (p[i] == 'dev' && i + 1 < length(p)) dev = p[i + 1];
+			if (p[i] == 'lladdr' && i + 1 < length(p)) mac = norm_mac(p[i + 1]);
 		}
 
-		if (!mac)
-			continue;
+		if (!mac) continue;
 
 		if (!users[mac]) {
-			users[mac] = {
-				hostname: '?',
-				ipaddr: ip6,
-				macaddr: mac,
-				device: dev
-			};
+			users[mac] = { hostname: '?', ipaddr: ip6, macaddr: mac, device: dev };
 		} else {
-			if (index(users[mac].ipaddr, ip6) < 0)
-				users[mac].ipaddr = users[mac].ipaddr + '/' + ip6;
-
-			if (!users[mac].device && dev)
-				users[mac].device = dev;
+			if (index(users[mac].ipaddr, ip6) < 0) {
+				users[mac].ipaddr = users[mac].ipaddr ? users[mac].ipaddr + '/' + ip6 : ip6;
+			}
+			if (!users[mac].device && dev) users[mac].device = dev;
 		}
 	}
-
 	return users;
+}
+
+function load_wireless_clients() {
+	let wifi_users = {};
+	let fd_dev = popen("iwinfo 2>/dev/null | grep -E '^[a-zA-Z0-9._-]+'");
+	if (!fd_dev) return wifi_users;
+		
+	let dev_text = fd_dev.read('all');
+	fd_dev.close();
+	let dev_lines = get_lines(dev_text);
+	
+	for (let i = 0; i < length(dev_lines); i++) {
+		let p = split_ws(dev_lines[i]);
+		if (length(p) < 2) continue;
+		
+		let dev = p[0];
+		let ssid = '';
+		let essid_idx = index(dev_lines[i], 'ESSID: "');
+		if (essid_idx >= 0) {
+			let sub = substr(dev_lines[i], essid_idx + 8);
+			let end_idx = index(sub, '"');
+			if (end_idx >= 0) ssid = substr(sub, 0, end_idx);
+		}
+		if (ssid == 'unknown') ssid = '';
+
+		let fd_assoc = popen(sprintf("iwinfo %s assoclist 2>/dev/null", dev));
+		if (fd_assoc) {
+			let assoc_text = fd_assoc.read('all');
+			fd_assoc.close();
+			let assoc_lines = get_lines(assoc_text);
+			
+			for (let j = 0; j < length(assoc_lines); j++) {
+				let ap = split_ws(assoc_lines[j]);
+				if (length(ap) >= 4 && match(ap[0], /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/)) {
+					let mac = norm_mac(ap[0]);
+					let signal = '0';
+					let sig_idx = index(assoc_lines[j], 'dBm');
+					if (sig_idx >= 0) {
+						let sub_sig = substr(assoc_lines[j], 0, sig_idx);
+						let sig_p = split_ws(sub_sig);
+						signal = sig_p[length(sig_p) - 1];
+					}
+					wifi_users[mac] = { signal: signal, ssid: ssid ? ssid : 'Wi-Fi', is_wifi: true };
+				}
+			}
+		}
+	}
+	return wifi_users;
 }
 
 function get_userlist() {
 	let users = load_ipv4_arp_users();
-
 	users = merge_ipv6_neighbors(users);
+	let wifi_users = load_wireless_clients();
+
+	for (let mac in users) {
+		if (wifi_users[mac]) {
+			users[mac].is_wifi = true;
+			users[mac].signal = wifi_users[mac].signal;
+			users[mac].ssid = wifi_users[mac].ssid;
+		}
+	}
+	for (let mac in wifi_users) {
+		if (!users[mac]) {
+			users[mac] = {
+				hostname: '?', ipaddr: '-', macaddr: mac, device: 'WLAN',
+				is_wifi: true, signal: wifi_users[mac].signal, ssid: wifi_users[mac].ssid
+			};
+		}
+	}
 
 	let rv = [];
-
 	for (let mac in users)
 		push(rv, users[mac]);
 
@@ -183,18 +189,12 @@ return {
 		getOnlineUsers: {
 			call: function() {
 				let userlist = get_userlist();
-
-				return {
-					onlineusers: sprintf('%d', length(userlist))
-				};
+				return { onlineusers: sprintf('%d', length(userlist)) };
 			}
 		},
-
 		getOnlineUserlist: {
 			call: function() {
-				return {
-					userlist: get_userlist()
-				};
+				return { userlist: get_userlist() };
 			}
 		}
 	}
