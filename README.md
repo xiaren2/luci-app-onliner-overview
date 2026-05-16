@@ -1,57 +1,60 @@
-# luci-app-onliner-overview
-Fork from https://github.com/lemonjc/luci-app-onliner-overview
+# luci-app-onliner-概述
+从https://github.com/lemonjc/luci-app-onliner-overview分支
 
 
 移动了位置，修改了部分功能
 
-A lightweight LuCI overview widget for OpenWrt / ImmortalWrt.
+<img width="1456" height="760" alt="image" src="https://github.com/user-attachments/assets/5ae35b5e-e4fa-42c4-997c-f6129bed3d54" />
 
-It displays online clients directly on the LuCI **Status → Overview** page.  
-This package does not add a standalone menu entry or configuration page.
 
-## Features
+一个轻量级的LuCI概览小部件，适用于OpenWrt / ImmortalWrt。
 
-- Show online clients on the LuCI overview page
-- Display hostname, IP address, MAC address and interface
-- Uses `rpcd` + `ucode` backend
-- Supports English and Simplified Chinese
+它直接在LuCI上显示在线客户端**状态 → 概述**页面。  
+这个软件包不添加一个独立的菜单项或配置页面。
 
-## Build
+## 特点
 
-Clone this package into your OpenWrt / ImmortalWrt source tree:
+- 在LuCI概览页面上显示在线客户端
+- 显示主机名、IP地址、MAC地址和接口
+- 用途 `rpcd` + `ucode` 后端
+- 支持英语和简体中文
+
+## 构建
+
+克隆这个软件包到你的 OpenWrt / ImmortalWrt 源代码树中：
 
 ```sh
 cd openwrt
 git clone https://github.com/lemonjc/luci-app-onliner-overview.git package/custom/luci-app-onliner-overview
 ```
 
-Select the package:
+选择套餐：
 
 ```sh
-make menuconfig
+生成菜单配置
 ```
 
-Path:
+路径：
 
-```text
-LuCI -> Applications -> luci-app-onliner-overview
+```文本
+LuCI -> 应用程序 -> luci-app-onliner-overview
 ```
 
-Build:
+构建：
 
 ```sh
-make package/custom/luci-app-onliner-overview/compile V=s
+编译软件包/自定义/Luci应用/Onliner概览/V=s
 ```
 
-The `.ipk` package will usually be generated under:
+该`.ipk`软件包通常会在以下目录生成：
 
-```text
-bin/packages/<architecture>/base/
+```文本
+bin/packages/<架构>/base/
 ```
 
-## Install
+## 安装
 
-Upload the `.ipk` file to your router and install it:
+将 上传 ``.ipk`` 文件到您的路由器并进行安装：
 
 ```sh
 opkg install /tmp/luci-app-onliner-overview_*.ipk
