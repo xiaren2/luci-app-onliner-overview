@@ -9,15 +9,13 @@ var callOnlineUserlist = rpc.declare({
 	expect: { userlist: [] }
 });
 
-// 左侧物理类型状态：'all', 'wifi', 'wired'
+// 全局状态变量
 var activeFilter = 'all';
-
-// 右侧 IP 过滤器的勾选状态
 var filterHideFe80 = false;
 var filterIPv4Only = false;
 var filterIPv6Only = false;
+var searchTerm = ''; 
 
-// 纯净版：处理多IP分行，去掉所有颜色和标识，使用主题默认文本色
 function renderIPAddress(ipString) {
 	if (!ipString || ipString === '-') return '-';
 	var ips = ipString.split('/');
@@ -25,7 +23,6 @@ function renderIPAddress(ipString) {
 	
 	ips.forEach(function(ip) {
 		if (!ip) return;
-		// 仅保留基础的等宽字体和换行间距，颜色完全跟随系统主题动态自适应
 		var ipNode = E('div', { 
 			'style': 'word-break:break-all; font-weight:500; font-family:monospace; margin-bottom: 2px;' 
 		}, ip);
@@ -57,9 +54,6 @@ function renderNetworkStatus(info) {
 	]);
 }
 
-/**
- * 根据右侧复选框的多选状态，动态清洗单个设备的复合 IP
- */
 function cleanIpAddressByFlags(ipStr) {
 	if (!ipStr || ipStr === '-') return '';
 	var parts = ipStr.split('/');
@@ -70,13 +64,8 @@ function cleanIpAddressByFlags(ipStr) {
 		var isV6 = (ip.indexOf(':') !== -1);
 		var isFe80 = (isV6 && ip.toLowerCase().indexOf('fe80:') === 0);
 
-		// 1. 如果勾选了“纯 IPv4”，剔除所有 v6
 		if (filterIPv4Only && isV6) return;
-
-		// 2. 如果勾选了“纯 IPv6”，剔除所有 v4
 		if (filterIPv6Only && !isV6) return;
-
-		// 3. 如果勾选了“过滤 fe80”，剔除 fe80 本地地址
 		if (filterHideFe80 && isFe80) return;
 
 		retained.push(ip);
@@ -85,8 +74,8 @@ function cleanIpAddressByFlags(ipStr) {
 	return retained.join('/');
 }
 
-// 渲染混合同步控制栏 (原生自适应主题样式)
-function renderControlBar(list, container, updateCallback) {
+// 渲染控制栏（已彻底剔除重启 rpcd 按钮）
+function renderControlBar(list, container, updateCallback, tableUpdateCallback) {
 	var cAll = list.length;
 	var cWifi = 0, cWired = 0;
 
@@ -96,13 +85,13 @@ function renderControlBar(list, container, updateCallback) {
 
 	var createTab = function(type, label, count) {
 		var isActive = (activeFilter === type);
-		var tabNode = E('button', {
+		return E('button', {
 			'class': isActive ? 'btn cbi-button-action' : 'btn cbi-button',
 			'style': 'padding: 5px 12px; font-weight: bold; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;',
 			'click': function(ev) {
 				ev.preventDefault();
 				activeFilter = type;
-				updateCallback();
+				updateCallback(); 
 			}
 		}, [
 			label,
@@ -111,8 +100,6 @@ function renderControlBar(list, container, updateCallback) {
 				'style': isActive ? 'margin-left:4px; background:rgba(255,255,255,0.25); color:inherit;' : 'margin-left:4px;' 
 			}, count)
 		]);
-
-		return tabNode;
 	};
 
 	var createCheckbox = function(id, labelText, currentValue, onChangeFn) {
@@ -123,40 +110,66 @@ function renderControlBar(list, container, updateCallback) {
 			'style': 'margin: 0 6px 0 0; cursor: pointer; vertical-align: middle;',
 			'change': function(ev) {
 				onChangeFn(ev.target.checked);
-				updateCallback();
+				updateCallback(); 
 			}
 		});
 		if (currentValue) chk.checked = true;
 
 		return E('span', { 'style': 'display: inline-flex; align-items: center; white-space: nowrap;' }, [
 			chk,
-			E('label', { 
-				'for': id,
-				'style': 'cursor: pointer; font-weight: bold; font-size: 13px; margin: 0; user-select: none;' 
-			}, labelText)
+			E('label', { 'for': id, 'style': 'cursor: pointer; font-weight: bold; font-size: 13px; margin: 0; user-select: none;' }, labelText)
 		]);
+	};
+
+	var handleForceRefresh = function(ev) {
+		ev.preventDefault();
+		window.location.reload();
 	};
 
 	return E('div', { 
 		'class': 'cbi-section-descr',
-		'style': 'margin-bottom: 20px; padding-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; border-bottom: 1px dashed rgba(128, 128, 128, 0.3); background: transparent;' 
+		'style': 'margin-bottom: 20px; padding-bottom: 15px; display: flex; flex-direction: column; gap: 12px; border-bottom: 1px dashed rgba(128, 128, 128, 0.3); background: transparent;' 
 	}, [
-		E('div', { 'style': 'display: flex; flex-wrap: wrap; gap: 6px;' }, [
-			createTab('all', _('All Clients'), cAll),
-			createTab('wifi', _('Wireless'), cWifi),
-			createTab('wired', _('Wired'), cWired)
+		E('div', { 'style': 'display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;' }, [
+			E('div', { 'style': 'display: flex; flex-wrap: wrap; gap: 6px;' }, [
+				createTab('all', _('All Clients'), cAll),
+				createTab('wifi', _('Wireless'), cWifi),
+				createTab('wired', _('Wired'), cWired)
+			]),
+			E('div', { 'style': 'display: flex; flex-wrap: wrap; gap: 15px; align-items: center;' }, [
+				E('strong', { 'style': 'font-size: 13px;' }, '⚙️ ' + _('IP Filters') + ':'),
+				createCheckbox('chk_fe80', _('Filter fe80'), filterHideFe80, function(val) { filterHideFe80 = val; }),
+				createCheckbox('chk_ipv4', _('IPv4 Only'), filterIPv4Only, function(val) { 
+					filterIPv4Only = val; if (val) filterIPv6Only = false; 
+				}),
+				createCheckbox('chk_ipv6', _('IPv6 Only'), filterIPv6Only, function(val) { 
+					filterIPv6Only = val; if (val) filterIPv4Only = false; 
+				})
+			])
 		]),
-		E('div', { 'style': 'display: flex; flex-wrap: wrap; gap: 15px; align-items: center;' }, [
-			E('strong', { 'style': 'font-size: 13px;' }, '⚙️ ' + _('IP Filters') + ':'),
-			createCheckbox('chk_fe80', _('Filter fe80'), filterHideFe80, function(val) { filterHideFe80 = val; }),
-			createCheckbox('chk_ipv4', _('IPv4 Only'), filterIPv4Only, function(val) { 
-				filterIPv4Only = val; 
-				if (val) filterIPv6Only = false; 
-			}),
-			createCheckbox('chk_ipv6', _('IPv6 Only'), filterIPv6Only, function(val) { 
-				filterIPv6Only = val; 
-				if (val) filterIPv4Only = false; 
-			})
+		
+		E('div', { 'style': 'display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;' }, [
+			E('div', { 'style': 'display: inline-flex; align-items: center; gap: 8px; flex: 1; max-width: 350px;' }, [
+				E('strong', { 'style': 'font-size: 13px; white-space: nowrap;' }, '🔍 ' + _('Search') + ':'),
+				E('input', {
+					'type': 'text',
+					'class': 'cbi-input-text',
+					'placeholder': _('Search Hostname, IP, MAC...'),
+					'style': 'width: 100%; padding: 4px 8px; font-size: 13px;',
+					'value': searchTerm,
+					'input': function(ev) {
+						searchTerm = ev.target.value.trim().toLowerCase();
+						tableUpdateCallback(); // 顺滑输入焦点修复
+					}
+				})
+			]),
+			E('div', { 'style': 'display: flex; gap: 8px;' }, [
+				E('button', {
+					'class': 'btn cbi-button-neutral',
+					'style': 'padding: 4px 12px; font-size: 13px; font-weight: bold;',
+					'click': handleForceRefresh
+				}, [ '🔄 ' + _('Force Refresh') ])
+			])
 		])
 	]);
 }
@@ -186,6 +199,22 @@ function renderUserTable(list) {
 			return;
 		}
 
+		if (searchTerm !== '') {
+			var hName = (info.hostname || '').toLowerCase();
+			var mAddr = (info.macaddr || '').toLowerCase();
+			var iFace = (info.device || '').toLowerCase();
+			var sSid = (info.ssid || '').toLowerCase();
+			var ips = cleanedIp.toLowerCase();
+
+			if (hName.indexOf(searchTerm) === -1 &&
+				mAddr.indexOf(searchTerm) === -1 &&
+				iFace.indexOf(searchTerm) === -1 &&
+				sSid.indexOf(searchTerm) === -1 &&
+				ips.indexOf(searchTerm) === -1) {
+				return;
+			}
+		}
+
 		var renderInfo = Object.assign({}, info, { ipaddr: cleanedIp || '-' });
 		displayRows.push(renderInfo);
 	});
@@ -202,10 +231,21 @@ function renderUserTable(list) {
 	});
 
 	displayRows.forEach(function(info) {
+		// 功能增强：将 MAC 地址包装为可在全新窗口打开的 OUI 厂商查询超链接
+		var macNode = '-';
+		if (info.macaddr) {
+			macNode = E('a', {
+				'href': 'https://www.macvendorlookup.com/api/v2/' + encodeURIComponent(info.macaddr),
+				'target': '_blank',
+				'title': _('Click to query MAC vendor in a new window'),
+				'style': 'font-family: monospace; text-decoration: underline; cursor: pointer;'
+			}, info.macaddr);
+		}
+
 		table.appendChild(E('tr', { 'class': 'tr' }, [
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, info.hostname || '?'),
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, renderIPAddress(info.ipaddr)),
-			E('td', { 'class': 'td', 'style': 'vertical-align: middle; font-family: monospace;' }, info.macaddr || '-'),
+			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, macNode),
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, info.device || '-'),
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, renderNetworkStatus(info))
 		]));
@@ -232,15 +272,17 @@ return view.extend({
 			E('div', { 'id': 'onliner-content-area' })
 		]);
 
-		var refreshViewContents = function(rawData) {
+		var refreshAllContents = function(rawData) {
 			var targetNode = container.querySelector('#onliner-content-area');
 			if (!targetNode) return;
 
 			var newContent = E('div', {}, [
 				renderControlBar(rawData, container, function() {
-					refreshViewContents(rawData);
+					refreshAllContents(rawData);
+				}, function() {
+					refreshTableOnly(rawData);
 				}),
-				E('div', { 'class': 'cbi-section' }, [
+				E('div', { 'id': 'onliner-table-wrapper', 'class': 'cbi-section' }, [
 					renderUserTable(rawData)
 				])
 			]);
@@ -249,11 +291,23 @@ return view.extend({
 			targetNode.appendChild(newContent);
 		};
 
-		refreshViewContents(data);
+		var refreshTableOnly = function(rawData) {
+			var tableWrapper = container.querySelector('#onliner-table-wrapper');
+			if (!tableWrapper) return;
+			tableWrapper.innerHTML = '';
+			tableWrapper.appendChild(renderUserTable(rawData));
+		};
+
+		refreshAllContents(data);
 
 		poll.add(function() {
 			return loadOnlineData().then(function(newData) {
-				refreshViewContents(newData);
+				var activeEl = document.activeElement;
+				if (activeEl && activeEl.classList.contains('cbi-input-text') && searchTerm !== '') {
+					refreshTableOnly(newData);
+				} else {
+					refreshAllContents(newData);
+				}
 			});
 		}, 5);
 
