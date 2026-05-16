@@ -1,37 +1,37 @@
 msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
-"Project-Id-Version: PACKAGE VERSION\n"
+"Project-Id-Version: luci-app-onliner-overview\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
 "Language: zh_Hans\n"
 "MIME-Version: 1.0\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: package/custom/luci-app-onliner-overview/root/usr/share/rpcd/acl.d/luci-app-onliner-overview.json:3
-msgid "Grant access to online clients overview widget"
-msgstr "授予在线客户概览小工具的访问权限"
+#: root/usr/share/luci/menu.d/luci-app-onliner-overview.json:3
+msgid "Online Users"
+msgstr "在线用户"
 
-#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:15
+#: root/usr/share/rpcd/acl.d/luci-app-onliner-overview.json:3
+msgid "Grant access to online clients overview widget"
+msgstr "授予在线用户概览页面的访问权限"
+
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js:15
 msgid "Hostname"
 msgstr "主机名"
 
-#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:16
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js:16
 msgid "IP Address"
 msgstr "IP 地址"
 
-#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:18
-msgid "Interface"
-msgstr "接口"
-
-#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:17
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js:17
 msgid "MAC address"
 msgstr "MAC 地址"
 
-#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:27
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js:18
+msgid "Interface"
+msgstr "接口"
+
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js:27
 msgid "No online users"
 msgstr "没有在线用户"
-
-#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:57
-msgid "Online User"
-msgstr "在线用户"
