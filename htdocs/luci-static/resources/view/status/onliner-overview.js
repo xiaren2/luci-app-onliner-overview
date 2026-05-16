@@ -310,7 +310,7 @@ return view.extend({
 					refreshAllContents(newData);
 				}
 			});
-		}, 5);
+		}, 60);
 
 		return container;
 	}
