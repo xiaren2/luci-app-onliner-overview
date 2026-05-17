@@ -9,22 +9,62 @@ var callOnlineUserlist = rpc.declare({
 	expect: { userlist: [] }
 });
 
+// 过滤器状态变量
 var activeFilter = 'all';
 var filterHideFe80 = false;
 var filterIPv4Only = false;
 var filterIPv6Only = false;
+
+// 新增：状态过滤器状态
+var filterHideFailed = false;
+var filterHideStale = false;
+var filterReachableOnly = false;
+
 var searchTerm = ''; 
 
+// 渲染 IP 及其邻居状态 Badge
 function renderIPAddress(ipString) {
-	if (!ipString || ipString === '-') return '-';
+	if (!ipString || ipString === '-' || ipString === 'null') return '-';
 	var ips = ipString.split('/');
 	var nodes = [];
 	
-	ips.forEach(function(ip) {
-		if (!ip) return;
+	ips.forEach(function(ipItem) {
+		if (!ipItem || ipItem === 'null') return;
+		
+		var rawIp = ipItem;
+		var status = '';
+		
+		var match = ipItem.match(/(.*)\[(.*)\]/);
+		if (match) {
+			rawIp = match[1];
+			status = match[2].toUpperCase();
+		}
+
+		if (rawIp === 'null') return;
+
+		var statusBadge = null;
+		if (status) {
+			var badgeStyle = 'margin-left: 6px; font-size: 0.8em; padding: 1px 4px; border-radius: 3px; font-weight: bold; color: #fff; line-height: 1.2; font-family: sans-serif;';
+			var bgColor = '#7f8c8d'; 
+
+			if (status === 'REACHABLE') {
+				bgColor = '#2ecc71'; 
+			} else if (status === 'FAILED') {
+				bgColor = '#e74c3c'; 
+			} else if (status === 'PROBE' || status === 'DELAY') {
+				bgColor = '#f39c12'; 
+			}
+
+			statusBadge = E('span', { 'style': badgeStyle + ' background-color: ' + bgColor + ';' }, [ status ]);
+		}
+		
 		var ipNode = E('div', { 
-			'style': 'word-break:break-all; font-weight:500; font-family:monospace; margin-bottom: 2px;' 
-		}, ip);
+			'style': 'word-break:break-all; font-weight:500; font-family:monospace; margin-bottom: 4px; display: flex; align-items: center; flex-wrap: wrap;' 
+		}, [
+			E('span', {}, rawIp),
+			statusBadge
+		]);
+		
 		nodes.push(ipNode);
 	});
 	return nodes;
@@ -37,19 +77,20 @@ function renderNetworkStatus(info) {
 		]);
 	}
 
+	var ssidText = info.ssid || 'Wi-Fi';
+	if (ssidText === 'null') ssidText = 'Wi-Fi';
+
 	return E('div', { 'style': 'display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;' }, [
 		E('span', { 'class': 'label success', 'style': 'margin: 0; background-color: #2980b9; font-size: 0.85em;' }, [
-			'📶 ' + (info.ssid || 'Wi-Fi')
+			'📶 ' + ssidText
 		]),
 		E('span', { 'style': 'font-size: 0.9em; font-weight: bold;' }, [
-			info.signal + ' dBm'
+			(info.signal || '0') + ' dBm'
 		])
 	]);
 }
 
-// 优化时间显示格式：例如 1h 39m 38s 
 function formatLeaseTime(expires) {
-	// 如果不是数字，或者小于等于 0 (后端未找到或静态)，直接显示 "-"
 	if (expires === undefined || expires === null || expires === '-' || typeof expires !== 'number' || expires <= 0) {
 		return '-';
 	}
@@ -66,21 +107,35 @@ function formatLeaseTime(expires) {
 	return res.join(' ');
 }
 
+// 清洗并根据勾选框动态过滤 IP 地址
 function cleanIpAddressByFlags(ipStr) {
-	if (!ipStr || ipStr === '-') return '';
+	if (!ipStr || ipStr === '-' || ipStr === 'null') return '';
 	var parts = ipStr.split('/');
 	var retained = [];
 
-	parts.forEach(function(ip) {
-		if (!ip) return;
-		var isV6 = (ip.indexOf(':') !== -1);
-		var isFe80 = (isV6 && ip.toLowerCase().indexOf('fe80:') === 0);
+	parts.forEach(function(ipItem) {
+		if (!ipItem || ipItem === 'null') return;
+		
+		var status = '';
+		var match = ipItem.match(/(.*)\[(.*)\]/);
+		if (match) {
+			status = match[2].toUpperCase();
+		}
+
+		// 执行状态级过滤器拦截
+		if (filterHideFailed && status === 'FAILED') return;
+		if (filterHideStale && status === 'STALE') return;
+		if (filterReachableOnly && status !== 'REACHABLE') return;
+
+		var cleanIp = ipItem.replace(/\[.*\]/, ''); 
+		var isV6 = (cleanIp.indexOf(':') !== -1);
+		var isFe80 = (isV6 && cleanIp.toLowerCase().indexOf('fe80:') === 0);
 
 		if (filterIPv4Only && isV6) return;
 		if (filterIPv6Only && !isV6) return;
 		if (filterHideFe80 && isFe80) return;
 
-		retained.push(ip);
+		retained.push(ipItem);
 	});
 
 	return retained.join('/');
@@ -126,7 +181,7 @@ function renderControlBar(list, container, updateCallback, tableUpdateCallback) 
 		});
 		if (currentValue) chk.checked = true;
 
-		return E('span', { 'style': 'display: inline-flex; align-items: center; white-space: nowrap;' }, [
+		return E('span', { 'style': 'display: inline-flex; align-items: center; white-space: nowrap; margin-right: 5px;' }, [
 			chk,
 			E('label', { 'for': id, 'style': 'cursor: pointer; font-weight: bold; font-size: 13px; margin: 0; user-select: none;' }, labelText)
 		]);
@@ -147,6 +202,7 @@ function renderControlBar(list, container, updateCallback, tableUpdateCallback) 
 				createTab('wifi', _('Wireless'), cWifi),
 				createTab('wired', _('Wired'), cWired)
 			]),
+			// 过滤面板整合
 			E('div', { 'style': 'display: flex; flex-wrap: wrap; gap: 15px; align-items: center;' }, [
 				E('strong', { 'style': 'font-size: 13px;' }, '⚙️ ' + _('IP Filters') + ':'),
 				createCheckbox('chk_fe80', _('Filter fe80'), filterHideFe80, function(val) { filterHideFe80 = val; }),
@@ -157,6 +213,21 @@ function renderControlBar(list, container, updateCallback, tableUpdateCallback) 
 					filterIPv6Only = val; if (val) filterIPv4Only = false; 
 				})
 			])
+		]),
+
+		// 新增：邻居状态动态过滤栏
+		E('div', { 'style': 'display: flex; flex-wrap: wrap; gap: 15px; align-items: center; background: rgba(0,0,0,0.02); padding: 6px 10px; border-radius: 4px;' }, [
+			E('strong', { 'style': 'font-size: 13px;' }, '🔍 ' + _('Status Filters') + ':'),
+			createCheckbox('chk_hide_failed', _('Filter FAILED'), filterHideFailed, function(val) { 
+				filterHideFailed = val; if(val) filterReachableOnly = false;
+			}),
+			createCheckbox('chk_hide_stale', _('Filter STALE'), filterHideStale, function(val) { 
+				filterHideStale = val; if(val) filterReachableOnly = false;
+			}),
+			createCheckbox('chk_reachable_only', _('REACHABLE Only'), filterReachableOnly, function(val) { 
+				filterReachableOnly = val;
+				if (val) { filterHideFailed = false; filterHideStale = false; }
+			})
 		]),
 		
 		E('div', { 'style': 'display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;' }, [
@@ -192,7 +263,7 @@ function renderUserTable(list) {
 			E('th', { 'class': 'th' }, _('IP Address')),
 			E('th', { 'class': 'th' }, _('MAC address')),
 			E('th', { 'class': 'th' }, _('Interface')),
-			E('th', { 'class': 'th' }, _('Expires In')), // 规范列名为 Expires In
+			E('th', { 'class': 'th' }, _('Expires In')),
 			E('th', { 'class': 'th' }, _('Network / Signal'))
 		])
 	]);
@@ -200,14 +271,17 @@ function renderUserTable(list) {
 	var displayRows = [];
 
 	list.forEach(function(info) {
-		if (!info.ipaddr && !info.macaddr) return;
+		if (!info.macaddr || info.macaddr === 'null' || info.macaddr === '') return;
+		if (!info.ipaddr || info.ipaddr === 'null' || info.ipaddr === '-') return;
 
 		if (activeFilter === 'wifi' && !info.is_wifi) return;
 		if (activeFilter === 'wired' && info.is_wifi) return;
 
+		// 调用集成了状态过滤的清洗函数
 		var cleanedIp = cleanIpAddressByFlags(info.ipaddr);
 
-		if ((filterHideFe80 || filterIPv4Only || filterIPv6Only) && cleanedIp === '') {
+		// 如果当前行的所有 IP 在经过过滤条件后都被干掉了，说明这行不需要展现
+		if (cleanedIp === '') {
 			return;
 		}
 
@@ -227,7 +301,17 @@ function renderUserTable(list) {
 			}
 		}
 
-		var renderInfo = Object.assign({}, info, { ipaddr: cleanedIp || '-' });
+		var hostNameClean = info.hostname || '?';
+		if (hostNameClean.toLowerCase() === 'null') hostNameClean = '?';
+
+		var devClean = info.device || '-';
+		if (devClean.toLowerCase() === 'null') devClean = '-';
+
+		var renderInfo = Object.assign({}, info, { 
+			ipaddr: cleanedIp,
+			hostname: hostNameClean,
+			device: devClean
+		});
 		displayRows.push(renderInfo);
 	});
 
@@ -254,11 +338,11 @@ function renderUserTable(list) {
 		}
 
 		table.appendChild(E('tr', { 'class': 'tr' }, [
-			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, info.hostname || '?'),
+			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, info.hostname),
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, renderIPAddress(info.ipaddr)),
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, macNode),
-			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, info.device || '-'),
-			E('td', { 'class': 'td', 'style': 'vertical-align: middle; font-family: monospace;' }, formatLeaseTime(info.expires)), // 渲染优化的时间
+			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, info.device),
+			E('td', { 'class': 'td', 'style': 'vertical-align: middle; font-family: monospace;' }, formatLeaseTime(info.expires)),
 			E('td', { 'class': 'td', 'style': 'vertical-align: middle;' }, renderNetworkStatus(info))
 		]));
 	});
@@ -281,7 +365,6 @@ return view.extend({
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Online User Overview')),
 			E('div', { 'class': 'cbi-map-descr' }, _('Real-time display of currently connected wired and wireless clients.')),
-			E('div', { 'class': 'cbi-map-descr' }, _('后端命令 ubus list | grep luci.onliner，ubus call luci.onliner getOnlineUserlist')),
 			E('div', { 'id': 'onliner-content-area' })
 		]);
 
@@ -322,7 +405,7 @@ return view.extend({
 					refreshAllContents(newData);
 				}
 			});
-		}, 300);
+		}, 60);
 
 		return container;
 	}
