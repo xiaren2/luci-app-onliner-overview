@@ -25,19 +25,19 @@ msgstr "在线用户概览"
 msgid "Real-time display of currently connected wired and wireless clients."
 msgstr "实时显示当前连接的有线和无线客户端。"
 
-#: htdocs/luci-static/resources/view/onliner-overview/overview.js:15
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
 msgid "Hostname"
 msgstr "主机名"
 
-#: htdocs/luci-static/resources/view/onliner-overview/overview.js:16
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
 msgid "IP Address"
 msgstr "IP 地址"
 
-#: htdocs/luci-static/resources/view/onliner-overview/overview.js:17
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
 msgid "MAC address"
 msgstr "MAC 地址"
 
-#: htdocs/luci-static/resources/view/onliner-overview/overview.js:18
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
 msgid "Interface"
 msgstr "接口"
 
@@ -54,7 +54,7 @@ msgstr "全部设备"
 msgid "Wireless"
 msgstr "无线设备"
 
-# 右侧复选框过滤行翻译
+# 右侧复选框过滤行（IP 协议层）
 msgid "IP Filters"
 msgstr "IP 协议过滤"
 
@@ -66,6 +66,19 @@ msgstr "纯 IPv4"
 
 msgid "IPv6 Only"
 msgstr "纯 IPv6"
+
+# 新增：邻居状态过滤行（链路/ARP/状态层）
+msgid "Status Filters"
+msgstr "设备状态过滤"
+
+msgid "Filter FAILED"
+msgstr "过滤失效/离线(FAILED)"
+
+msgid "Filter STALE"
+msgstr "过滤陈旧/休眠(STALE)"
+
+msgid "REACHABLE Only"
+msgstr "只看活跃在线(REACHABLE)"
 
 # 搜索框与动作按钮翻译
 msgid "Search"
@@ -81,12 +94,12 @@ msgstr "强制刷新"
 msgid "Click to query MAC vendor in a new window"
 msgstr "点击在新窗口中查询该 MAC 的厂商信息"
 
-#: htdocs/luci-static/resources/view/onliner-overview/overview.js:27
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
 msgid "No online users"
 msgstr "当前没有在线用户"
 
 msgid "No matching online users"
-msgstr "没有满足当前过滤条件的在线用户"
+msgstr "没有满足当前过滤条件的设备"
 
 msgid "Expires In"
 msgstr "租期剩余"
