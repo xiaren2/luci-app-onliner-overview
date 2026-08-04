@@ -362,8 +362,8 @@ function renderUserTable(list) {
 	return table;
 }
 
-// 渲染内核 IP 路由表 (类似 `route` 命令输出)，支持按路由表分组
-function renderRouteTable(tableGroups) {
+// 渲染内核 IP 路由表 (类似 `route` 命令输出)，支持按路由表分组，并在每组下方列出命中本表的规则
+function renderRouteTable(tableGroups, allRules) {
 	var container = E('div', {});
 
 	if (!tableGroups || !tableGroups.length) {
@@ -378,8 +378,10 @@ function renderRouteTable(tableGroups) {
 	}
 
 	var mono = 'font-family: monospace;';
+	var rules = allRules || [];
 
 	// 每次调用都新建一组表头，避免 DOM 节点被多个表共享导致丢失
+	// 列精简为 6 列：去掉无实际意义的 Ref / Use
 	var buildHeaderCells = function() {
 		return [
 			E('th', { 'class': 'th' }, _('Destination')),
@@ -387,10 +389,70 @@ function renderRouteTable(tableGroups) {
 			E('th', { 'class': 'th' }, _('Genmask')),
 			E('th', { 'class': 'th' }, _('Flags')),
 			E('th', { 'class': 'th' }, _('Metric')),
-			E('th', { 'class': 'th' }, _('Ref')),
-			E('th', { 'class': 'th' }, _('Use')),
 			E('th', { 'class': 'th' }, _('Iface'))
 		];
+	};
+
+	// 根据 rule 的 target 与表名/表ID匹配，挑出命中本表的规则
+	var matchRulesForTable = function(tbl) {
+		var hits = [];
+		rules.forEach(function(r) {
+			if (!r) return;
+			var tgt = (r.target || '').toString();
+			if (!tgt) return;
+			if (r.action == 'lookup' &&
+				(tgt == tbl.table_name || tgt == tbl.table_id || tgt === String(tbl.table_id))) {
+				hits.push(r);
+			}
+		});
+		hits.sort(function(a, b) {
+			return parseInt(a.priority || '0', 10) - parseInt(b.priority || '0', 10);
+		});
+		return hits;
+	};
+
+	var ruleBadgeColor = {
+		'lookup': '#2980b9',
+		'goto':   '#8e44ad',
+		'prohibit': '#c0392b',
+		'unreachable': '#e67e22',
+		'throw': '#d35400',
+		'blackhole': '#2c3e50',
+		'nat': '#16a085'
+	};
+
+	var buildRuleList = function(hitRules) {
+		if (!hitRules.length) {
+			return E('div', { 'style': 'font-size:12px; color:#95a5a6; margin:0 0 10px 4px; padding:4px 8px; background:rgba(0,0,0,0.02); border-radius:3px;' }, [
+				_('No rules hit this table')
+			]);
+		}
+
+		var nodes = hitRules.map(function(r) {
+			var c = ruleBadgeColor[r.action] || '#7f8c8d';
+			var pieces = [];
+			pieces.push(E('span', { 'style': 'display:inline-block; padding:1px 6px; border-radius:3px; background:#bdc3c7; color:#fff; font-size:11px; font-family:monospace; margin-right:6px;' },
+				[r.priority || '-']));
+			pieces.push(E('span', { 'style': mono + ' margin-right:6px;' },
+				[ _('From') + ': ', E('strong', {}, r.from || 'all') ]));
+			if (r.to && r.to != 'all') pieces.push(E('span', { 'style': mono + ' margin-right:6px;' },
+				[ _('To') + ': ', E('strong', {}, r.to) ]));
+			if (r.iif && r.iif != '-') pieces.push(E('span', { 'style': mono + ' margin-right:6px;' },
+				[ _('In Iface') + ': ', E('strong', {}, r.iif) ]));
+			if (r.oif && r.oif != '-') pieces.push(E('span', { 'style': mono + ' margin-right:6px;' },
+				[ _('Out Iface') + ': ', E('strong', {}, r.oif) ]));
+			pieces.push(E('span', { 'style': 'display:inline-block; padding:1px 6px; border-radius:3px; color:#fff; font-size:11px; font-weight:bold; margin-right:6px; background:' + c + ';' },
+				[r.action || '-']));
+			if (r.target && r.target != '-') pieces.push(E('span', { 'style': mono + ' font-weight:bold; color:' + c + ';' }, [r.target]));
+
+			return E('div', { 'style': 'padding:4px 8px; margin:0 0 3px 4px; background:rgba(0,0,0,0.02); border-radius:3px; font-size:12px; line-height:1.7;' }, pieces);
+		});
+
+		return E('div', { 'style': 'margin:4px 0 12px 0;' }, [
+			E('div', { 'style': 'font-size:12px; color:#2c3e50; margin:0 0 5px 4px; font-weight:bold;' }, [
+				'📋 ' + _('Rules hitting this table') + ' (' + hitRules.length + ')'
+			])
+		].concat(nodes));
 	};
 
 	tableGroups.forEach(function(group) {
@@ -398,78 +460,81 @@ function renderRouteTable(tableGroups) {
 			? _('Table: main (default)')
 			: _('Table: %s (ID %s)').replace('%s', group.table_name).replace('%s', group.table_id);
 
-		// 每个表独立创建一组表头单元格
 		var headerCells = buildHeaderCells();
+		var hitRules = matchRulesForTable(group);
+		var routeCount = (group.routes || []).length;
+		var ruleCount = hitRules.length;
+
+		// 只折叠"命中规则"这一小块，6 列路由表始终展开
+		var rulesOnlyId = 'route-rules-' + Math.random().toString(36).slice(2, 10);
+		var rulesBox = E('div', {
+			'id': rulesOnlyId,
+			'style': 'display: none;'
+		}, [
+			buildRuleList(hitRules)
+		]);
+
+		var arrowNode = E('span', {
+			'id': rulesOnlyId + '-arrow',
+			'style': 'display:inline-block; margin-right:6px; transition: transform .15s ease; transform: rotate(0deg); font-size: 12px; color:#7f8c8d;'
+		}, ['▶']);
+
+		var titleBadges = [];
+		if (ruleCount > 0) {
+			titleBadges.push(E('span', {
+				'style': 'display:inline-block; margin-left:8px; padding:1px 7px; border-radius:10px; background:#3498db; color:#fff; font-size:11px; font-weight:normal;'
+			}, [ruleCount + ' ' + _('rule(s)')]));
+		}
+		titleBadges.push(E('span', {
+			'style': 'display:inline-block; margin-left:6px; font-size:12px; color:#7f8c8d; font-weight:normal;'
+		}, [_('%d route(s)').replace('%d', routeCount)]));
+
+		var headerBar = E('div', {
+			'style': 'display:flex; align-items:center; cursor:pointer; user-select:none; padding:2px 0; border-bottom:1px solid #ecf0f1; margin-bottom:6px;',
+			'click': function() {
+				var box = document.getElementById(rulesOnlyId);
+				var arr = document.getElementById(rulesOnlyId + '-arrow');
+				if (!box) return;
+				if (box.style.display === 'none') {
+					box.style.display = 'block';
+					if (arr) arr.style.transform = 'rotate(90deg)';
+				} else {
+					box.style.display = 'none';
+					if (arr) arr.style.transform = 'rotate(0deg)';
+				}
+			}
+		}, [
+			arrowNode,
+			E('h3', { 'style': 'margin:0; font-size:14px; color:#2c3e50; display:inline-block;' }, [titleText]),
+			E('span', { 'style': 'flex:1;' }, []),
+			E('div', { 'style': 'display:inline-block;' }, titleBadges)
+		]);
+
+		var routeTableBox = E('table', { 'class': 'table' }, [
+			E('tr', { 'class': 'tr table-titles' }, headerCells)
+		].concat(
+			(!group.routes || !group.routes.length)
+				? [ E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td', 'colspan': '6' }, _('No routing entries')) ]) ]
+				: group.routes.map(function(r) {
+					return E('tr', { 'class': 'tr' }, [
+						E('td', { 'class': 'td', 'style': mono }, r.destination || '-'),
+						E('td', { 'class': 'td', 'style': mono }, r.gateway || '-'),
+						E('td', { 'class': 'td', 'style': mono }, r.genmask || '-'),
+						E('td', { 'class': 'td', 'style': mono + ' font-weight: bold;' }, r.flags || '-'),
+						E('td', { 'class': 'td', 'style': mono }, r.metric || '0'),
+						E('td', { 'class': 'td' }, r.iface || '-')
+					]);
+				})
+		));
 
 		container.appendChild(E('div', { 'class': 'cbi-section' }, [
-			E('div', { 'style': 'margin-bottom: 8px;' }, [
-				E('h3', { 'style': 'margin: 0 0 6px 0; font-size: 14px; color: #2c3e50;' }, titleText),
-				E('div', { 'style': 'font-size: 12px; color: #7f8c8d; margin-bottom: 6px;' },
-					_('%d route(s)').replace('%d', (group.routes || []).length))
-			]),
-			E('table', { 'class': 'table' }, [
-				E('tr', { 'class': 'tr table-titles' }, headerCells)
-			].concat(
-				(!group.routes || !group.routes.length)
-					? [ E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td', 'colspan': '8' }, _('No routing entries')) ]) ]
-					: group.routes.map(function(r) {
-						return E('tr', { 'class': 'tr' }, [
-							E('td', { 'class': 'td', 'style': mono }, r.destination || '-'),
-							E('td', { 'class': 'td', 'style': mono }, r.gateway || '-'),
-							E('td', { 'class': 'td', 'style': mono }, r.genmask || '-'),
-							E('td', { 'class': 'td', 'style': mono + ' font-weight: bold;' }, r.flags || '-'),
-							E('td', { 'class': 'td', 'style': mono }, r.metric || '0'),
-							E('td', { 'class': 'td', 'style': mono }, r.ref || '0'),
-							E('td', { 'class': 'td', 'style': mono }, r.use || '0'),
-							E('td', { 'class': 'td' }, r.iface || '-')
-						]);
-					})
-			))
+			headerBar,
+			rulesBox,
+			routeTableBox
 		]));
 	});
 
 	return container;
-}
-
-// 渲染策略路由规则 (ip rule show)
-function renderRouteRules(rules) {
-	var table = E('table', { 'class': 'table' }, [
-		E('tr', { 'class': 'tr table-titles' }, [
-			E('th', { 'class': 'th' }, _('Priority')),
-			E('th', { 'class': 'th' }, _('From')),
-			E('th', { 'class': 'th' }, _('To')),
-			E('th', { 'class': 'th' }, _('In Iface')),
-			E('th', { 'class': 'th' }, _('Out Iface')),
-			E('th', { 'class': 'th' }, _('Action')),
-			E('th', { 'class': 'th' }, _('Target'))
-		])
-	]);
-
-	if (!rules || !rules.length) {
-		table.appendChild(E('tr', { 'class': 'tr' }, [
-			E('td', { 'class': 'td', 'style': 'text-align:center; padding:16px; color:#999;', 'colspan': '7' }, _('No routing rules'))
-		]));
-		return table;
-	}
-
-	var mono = 'font-family: monospace;';
-
-	rules.forEach(function(r) {
-		// 高亮 lookup 动作的表名（可能为数字或表名）
-		var actionNode = E('span', { 'style': mono + ' font-weight: bold; color: #2980b9;' }, r.action || '-');
-
-		table.appendChild(E('tr', { 'class': 'tr' }, [
-			E('td', { 'class': 'td', 'style': mono + ' color:#7f8c8d;' }, r.priority || '-'),
-			E('td', { 'class': 'td', 'style': mono }, r.from || 'all'),
-			E('td', { 'class': 'td', 'style': mono }, r.to || 'all'),
-			E('td', { 'class': 'td', 'style': mono }, r.iif || '-'),
-			E('td', { 'class': 'td', 'style': mono }, r.oif || '-'),
-			E('td', { 'class': 'td' }, actionNode),
-			E('td', { 'class': 'td', 'style': mono + ' font-weight: bold;' }, r.target || '-')
-		]));
-	});
-
-	return table;
 }
 
 function loadOnlineData() {
@@ -507,12 +572,7 @@ return view.extend({
 			E('h2', { 'style': 'margin-top: 30px;' }, _('Routing Table')),
 			E('div', { 'class': 'cbi-map-descr' }, _('Kernel IP routing table, similar to the output of the route command.')),
 			E('div', { 'id': 'onliner-route-table-wrapper' }, [
-				renderRouteTable(routeData)
-			]),
-			E('h2', { 'style': 'margin-top: 30px;' }, _('Routing Rules')),
-			E('div', { 'class': 'cbi-map-descr' }, _('Policy routing rules, similar to the output of the ip rule command.')),
-			E('div', { 'id': 'onliner-route-rules-wrapper', 'class': 'cbi-section' }, [
-				renderRouteRules(rulesData)
+				renderRouteTable(routeData, rulesData)
 			])
 		]);
 
@@ -542,23 +602,15 @@ return view.extend({
 			tableWrapper.appendChild(renderUserTable(rawData));
 		};
 
-		var refreshRouteTable = function(routeTableData) {
+		var refreshRouteTable = function(routeTableData, rulesData) {
 			var routeWrapper = container.querySelector('#onliner-route-table-wrapper');
 			if (!routeWrapper) return;
 			routeWrapper.innerHTML = '';
-			routeWrapper.appendChild(renderRouteTable(routeTableData));
-		};
-
-		var refreshRouteRules = function(routeRulesData) {
-			var rulesWrapper = container.querySelector('#onliner-route-rules-wrapper');
-			if (!rulesWrapper) return;
-			rulesWrapper.innerHTML = '';
-			rulesWrapper.appendChild(renderRouteRules(routeRulesData));
+			routeWrapper.appendChild(renderRouteTable(routeTableData, rulesData));
 		};
 
 		refreshAllContents(onlineData);
-		refreshRouteTable(routeData);
-		refreshRouteRules(rulesData);
+		refreshRouteTable(routeData, rulesData);
 
 		poll.add(function() {
 			return Promise.all([
@@ -575,8 +627,7 @@ return view.extend({
 				} else {
 					refreshAllContents(newOnlineData);
 				}
-				refreshRouteTable(newRouteData);
-				refreshRouteRules(newRulesData);
+				refreshRouteTable(newRouteData, newRulesData);
 			});
 		}, 60);
 
