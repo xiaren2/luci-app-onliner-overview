@@ -9,6 +9,18 @@ var callOnlineUserlist = rpc.declare({
 	expect: { userlist: [] }
 });
 
+var callRouteTable = rpc.declare({
+	object: 'luci.onliner',
+	method: 'getRouteTable',
+	expect: { routetable: [] }
+});
+
+var callRouteRules = rpc.declare({
+	object: 'luci.onliner',
+	method: 'getRouteRules',
+	expect: { routerules: [] }
+});
+
 // 过滤器状态变量
 var activeFilter = 'all';
 var filterHideFe80 = false;
@@ -350,22 +362,158 @@ function renderUserTable(list) {
 	return table;
 }
 
+// 渲染内核 IP 路由表 (类似 `route` 命令输出)，支持按路由表分组
+function renderRouteTable(tableGroups) {
+	var container = E('div', {});
+
+	if (!tableGroups || !tableGroups.length) {
+		container.appendChild(E('div', { 'class': 'cbi-section' }, [
+			E('table', { 'class': 'table' }, [
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td', 'style': 'text-align:center; padding:16px; color:#999;' }, _('No routing entries'))
+				])
+			])
+		]));
+		return container;
+	}
+
+	var mono = 'font-family: monospace;';
+
+	// 每次调用都新建一组表头，避免 DOM 节点被多个表共享导致丢失
+	var buildHeaderCells = function() {
+		return [
+			E('th', { 'class': 'th' }, _('Destination')),
+			E('th', { 'class': 'th' }, _('Gateway')),
+			E('th', { 'class': 'th' }, _('Genmask')),
+			E('th', { 'class': 'th' }, _('Flags')),
+			E('th', { 'class': 'th' }, _('Metric')),
+			E('th', { 'class': 'th' }, _('Ref')),
+			E('th', { 'class': 'th' }, _('Use')),
+			E('th', { 'class': 'th' }, _('Iface'))
+		];
+	};
+
+	tableGroups.forEach(function(group) {
+		var titleText = (group.table_name == 'main')
+			? _('Table: main (default)')
+			: _('Table: %s (ID %s)').replace('%s', group.table_name).replace('%s', group.table_id);
+
+		// 每个表独立创建一组表头单元格
+		var headerCells = buildHeaderCells();
+
+		container.appendChild(E('div', { 'class': 'cbi-section' }, [
+			E('div', { 'style': 'margin-bottom: 8px;' }, [
+				E('h3', { 'style': 'margin: 0 0 6px 0; font-size: 14px; color: #2c3e50;' }, titleText),
+				E('div', { 'style': 'font-size: 12px; color: #7f8c8d; margin-bottom: 6px;' },
+					_('%d route(s)').replace('%d', (group.routes || []).length))
+			]),
+			E('table', { 'class': 'table' }, [
+				E('tr', { 'class': 'tr table-titles' }, headerCells)
+			].concat(
+				(!group.routes || !group.routes.length)
+					? [ E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td', 'colspan': '8' }, _('No routing entries')) ]) ]
+					: group.routes.map(function(r) {
+						return E('tr', { 'class': 'tr' }, [
+							E('td', { 'class': 'td', 'style': mono }, r.destination || '-'),
+							E('td', { 'class': 'td', 'style': mono }, r.gateway || '-'),
+							E('td', { 'class': 'td', 'style': mono }, r.genmask || '-'),
+							E('td', { 'class': 'td', 'style': mono + ' font-weight: bold;' }, r.flags || '-'),
+							E('td', { 'class': 'td', 'style': mono }, r.metric || '0'),
+							E('td', { 'class': 'td', 'style': mono }, r.ref || '0'),
+							E('td', { 'class': 'td', 'style': mono }, r.use || '0'),
+							E('td', { 'class': 'td' }, r.iface || '-')
+						]);
+					})
+			))
+		]));
+	});
+
+	return container;
+}
+
+// 渲染策略路由规则 (ip rule show)
+function renderRouteRules(rules) {
+	var table = E('table', { 'class': 'table' }, [
+		E('tr', { 'class': 'tr table-titles' }, [
+			E('th', { 'class': 'th' }, _('Priority')),
+			E('th', { 'class': 'th' }, _('From')),
+			E('th', { 'class': 'th' }, _('To')),
+			E('th', { 'class': 'th' }, _('In Iface')),
+			E('th', { 'class': 'th' }, _('Out Iface')),
+			E('th', { 'class': 'th' }, _('Action')),
+			E('th', { 'class': 'th' }, _('Target'))
+		])
+	]);
+
+	if (!rules || !rules.length) {
+		table.appendChild(E('tr', { 'class': 'tr' }, [
+			E('td', { 'class': 'td', 'style': 'text-align:center; padding:16px; color:#999;', 'colspan': '7' }, _('No routing rules'))
+		]));
+		return table;
+	}
+
+	var mono = 'font-family: monospace;';
+
+	rules.forEach(function(r) {
+		// 高亮 lookup 动作的表名（可能为数字或表名）
+		var actionNode = E('span', { 'style': mono + ' font-weight: bold; color: #2980b9;' }, r.action || '-');
+
+		table.appendChild(E('tr', { 'class': 'tr' }, [
+			E('td', { 'class': 'td', 'style': mono + ' color:#7f8c8d;' }, r.priority || '-'),
+			E('td', { 'class': 'td', 'style': mono }, r.from || 'all'),
+			E('td', { 'class': 'td', 'style': mono }, r.to || 'all'),
+			E('td', { 'class': 'td', 'style': mono }, r.iif || '-'),
+			E('td', { 'class': 'td', 'style': mono }, r.oif || '-'),
+			E('td', { 'class': 'td' }, actionNode),
+			E('td', { 'class': 'td', 'style': mono + ' font-weight: bold;' }, r.target || '-')
+		]));
+	});
+
+	return table;
+}
+
 function loadOnlineData() {
 	return L.resolveDefault(callOnlineUserlist(), []);
+}
+
+function loadRouteTableData() {
+	return L.resolveDefault(callRouteTable(), []);
+}
+
+function loadRouteRulesData() {
+	return L.resolveDefault(callRouteRules(), []);
 }
 
 return view.extend({
 	label: _('Online Clients'),
 
 	load: function() {
-		return loadOnlineData();
+		return Promise.all([
+			loadOnlineData(),
+			loadRouteTableData(),
+			loadRouteRulesData()
+		]);
 	},
 
 	render: function(data) {
+		var onlineData = data[0] || [];
+		var routeData = data[1] || [];
+		var rulesData = data[2] || [];
+
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Online User Overview')),
 			E('div', { 'class': 'cbi-map-descr' }, _('Real-time display of currently connected wired and wireless clients.')),
-			E('div', { 'id': 'onliner-content-area' })
+			E('div', { 'id': 'onliner-content-area' }),
+			E('h2', { 'style': 'margin-top: 30px;' }, _('Routing Table')),
+			E('div', { 'class': 'cbi-map-descr' }, _('Kernel IP routing table, similar to the output of the route command.')),
+			E('div', { 'id': 'onliner-route-table-wrapper' }, [
+				renderRouteTable(routeData)
+			]),
+			E('h2', { 'style': 'margin-top: 30px;' }, _('Routing Rules')),
+			E('div', { 'class': 'cbi-map-descr' }, _('Policy routing rules, similar to the output of the ip rule command.')),
+			E('div', { 'id': 'onliner-route-rules-wrapper', 'class': 'cbi-section' }, [
+				renderRouteRules(rulesData)
+			])
 		]);
 
 		var refreshAllContents = function(rawData) {
@@ -394,16 +542,41 @@ return view.extend({
 			tableWrapper.appendChild(renderUserTable(rawData));
 		};
 
-		refreshAllContents(data);
+		var refreshRouteTable = function(routeTableData) {
+			var routeWrapper = container.querySelector('#onliner-route-table-wrapper');
+			if (!routeWrapper) return;
+			routeWrapper.innerHTML = '';
+			routeWrapper.appendChild(renderRouteTable(routeTableData));
+		};
+
+		var refreshRouteRules = function(routeRulesData) {
+			var rulesWrapper = container.querySelector('#onliner-route-rules-wrapper');
+			if (!rulesWrapper) return;
+			rulesWrapper.innerHTML = '';
+			rulesWrapper.appendChild(renderRouteRules(routeRulesData));
+		};
+
+		refreshAllContents(onlineData);
+		refreshRouteTable(routeData);
+		refreshRouteRules(rulesData);
 
 		poll.add(function() {
-			return loadOnlineData().then(function(newData) {
+			return Promise.all([
+				loadOnlineData(),
+				loadRouteTableData(),
+				loadRouteRulesData()
+			]).then(function(results) {
+				var newOnlineData = results[0] || [];
+				var newRouteData = results[1] || [];
+				var newRulesData = results[2] || [];
 				var activeEl = document.activeElement;
 				if (activeEl && activeEl.classList.contains('cbi-input-text') && searchTerm !== '') {
-					refreshTableOnly(newData);
+					refreshTableOnly(newOnlineData);
 				} else {
-					refreshAllContents(newData);
+					refreshAllContents(newOnlineData);
 				}
+				refreshRouteTable(newRouteData);
+				refreshRouteRules(newRulesData);
 			});
 		}, 60);
 
