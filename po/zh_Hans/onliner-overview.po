@@ -177,3 +177,12 @@ msgstr "目标表/跳转"
 
 msgid "No routing rules"
 msgstr "暂无路由规则"
+
+msgid "Rules hitting this table"
+msgstr "命中本表的路由规则"
+
+msgid "No rules hit this table"
+msgstr "暂无命中本表的路由规则"
+
+msgid "rule(s)"
+msgstr "条规则"
