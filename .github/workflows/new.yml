@@ -96,8 +96,8 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: multi-arch-build
-          name: Multi-Arch Build
+          tag_name: multi-arch-build new
+          name: Multi-Arch Build new
           draft: false
           prerelease: false
           files: packages/**/*
