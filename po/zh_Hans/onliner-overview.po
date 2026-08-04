@@ -103,3 +103,77 @@ msgstr "没有满足当前过滤条件的设备"
 
 msgid "Expires In"
 msgstr "租期剩余"
+
+# 路由表相关翻译
+msgid "Routing Table"
+msgstr "路由表"
+
+msgid "Kernel IP routing table, similar to the output of the route command."
+msgstr "内核 IP 路由表，类似 route 命令的输出。"
+
+msgid "Destination"
+msgstr "目标网络"
+
+msgid "Gateway"
+msgstr "网关"
+
+msgid "Genmask"
+msgstr "子网掩码"
+
+msgid "Flags"
+msgstr "标志"
+
+msgid "Metric"
+msgstr "度量值"
+
+msgid "Ref"
+msgstr "引用数"
+
+msgid "Use"
+msgstr "使用数"
+
+msgid "Iface"
+msgstr "接口"
+
+msgid "No routing entries"
+msgstr "暂无路由条目"
+
+msgid "Table: main (default)"
+msgstr "路由表：main（默认主表）"
+
+msgid "Table: %s (ID %s)"
+msgstr "路由表：%s（ID %s）"
+
+msgid "%d route(s)"
+msgstr "共 %d 条路由"
+
+# 路由规则相关翻译
+msgid "Routing Rules"
+msgstr "路由规则"
+
+msgid "Policy routing rules, similar to the output of the ip rule command."
+msgstr "策略路由规则，类似 ip rule 命令的输出。"
+
+msgid "Priority"
+msgstr "优先级"
+
+msgid "From"
+msgstr "源地址"
+
+msgid "To"
+msgstr "目的地址"
+
+msgid "In Iface"
+msgstr "入接口"
+
+msgid "Out Iface"
+msgstr "出接口"
+
+msgid "Action"
+msgstr "动作"
+
+msgid "Target"
+msgstr "目标表/跳转"
+
+msgid "No routing rules"
+msgstr "暂无路由规则"
