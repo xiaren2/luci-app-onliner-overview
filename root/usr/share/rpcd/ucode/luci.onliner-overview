@@ -201,6 +201,229 @@ function get_userlist() {
 	return rv;
 }
 
+// 5. 读取并解析内核 IP 路由表 (类似 `route` 命令输出格式，覆盖所有路由表)
+
+// 根据 CIDR 前缀长度换算点分十进制子网掩码
+function cidr_to_mask(prefix) {
+	let n = int(prefix);
+	if (n <= 0) return '0.0.0.0';
+	if (n >= 32) return '255.255.255.255';
+	let mask = 0;
+	for (let i = 0; i < n; i++) mask = (mask << 1) | 1;
+	mask = mask << (32 - n);
+	let b4 = mask & 0xff;
+	let b3 = (mask >> 8) & 0xff;
+	let b2 = (mask >> 16) & 0xff;
+	let b1 = (mask >> 24) & 0xff;
+	return sprintf('%d.%d.%d.%d', b1, b2, b3, b4);
+}
+
+// 从 ip route 单行文本解析出 destination / gateway / genmask / metric / iface / flags
+function parse_ip_route_line(line) {
+	let p = split_ws(trim(line));
+	if (!length(p)) return null;
+
+	let dest_raw = p[0];
+	let dest = '';
+	let genmask = '';
+
+	if (dest_raw == 'default') {
+		dest = 'default';
+		genmask = '0.0.0.0';
+	} else {
+		// 形如 192.168.1.0/24
+		let slash_idx = index(dest_raw, '/');
+		if (slash_idx >= 0) {
+			dest = substr(dest_raw, 0, slash_idx);
+			let cidr = substr(dest_raw, slash_idx + 1);
+			genmask = cidr_to_mask(cidr);
+		} else {
+			dest = dest_raw;
+			genmask = '255.255.255.255';
+		}
+	}
+
+	let gateway = '*';
+	let iface = '';
+	let metric = '0';
+	// 关键字段解析
+	for (let i = 1; i < length(p); i++) {
+		if (p[i] == 'via' && i + 1 < length(p)) {
+			gateway = p[i + 1];
+		} else if (p[i] == 'dev' && i + 1 < length(p)) {
+			iface = p[i + 1];
+		} else if (p[i] == 'metric' && i + 1 < length(p)) {
+			metric = p[i + 1];
+		}
+	}
+
+	// 合成 Flags: U(UP) + G(Gateway) + H(Host /32)
+	let flags = 'U';
+	if (gateway != '*') flags += 'G';
+	if (genmask == '255.255.255.255') flags += 'H';
+
+	return {
+		destination: dest,
+		gateway: gateway,
+		genmask: genmask,
+		flags: flags,
+		metric: metric,
+		ref: '0',
+		use: '0',
+		iface: iface
+	};
+}
+
+// 读取 iproute2 rt_tables 定义，返回 [{id,name},...]
+function load_rt_tables() {
+	let tables = [];
+	let text = read_text('/etc/iproute2/rt_tables');
+	let lns = get_lines(text);
+	for (let i = 0; i < length(lns); i++) {
+		let line = lns[i];
+		// 去注释与空白
+		let hash_idx = index(line, '#');
+		if (hash_idx >= 0) line = substr(line, 0, hash_idx);
+		line = trim(line);
+		if (!line) continue;
+		let p = split_ws(line);
+		if (length(p) < 2) continue;
+		let id = p[0];
+		let name = p[1];
+		// 跳过 reserved 表
+		if (name == 'unspec' || name == 'local' || name == 'broadcast') continue;
+		push(tables, { id: id, name: name });
+	}
+	return tables;
+}
+
+function get_route_table() {
+	// 先收集所有路由表：先从 rt_tables 取，再追加默认的 main (254)
+	let raw_tables = load_rt_tables();
+	// 确保 main 一定在（即使 rt_tables 里缺失或注释掉了）
+	let has_main = false;
+	for (let i = 0; i < length(raw_tables); i++) {
+		if (raw_tables[i].name == 'main') { has_main = true; break; }
+	}
+	if (!has_main) push(raw_tables, { id: '254', name: 'main' });
+
+	// 按表 ID 升序排序，使 main 在最前、自定义表紧随其后
+	raw_tables = sort(raw_tables, function(a, b) {
+		return int(a.id) - int(b.id);
+	});
+
+	let result = [];
+	for (let i = 0; i < length(raw_tables); i++) {
+		let tbl = raw_tables[i];
+		let tbl_routes = [];
+		let fd = popen(sprintf("ip -4 route show table %s 2>/dev/null", tbl.name));
+		if (fd) {
+			let text = fd.read('all');
+			fd.close();
+			let lns = get_lines(text);
+			for (let j = 0; j < length(lns); j++) {
+				let line = lns[j];
+				if (!trim(line)) continue;
+				// 过滤本地环回的 linkdown 等纯本地路线
+				let parsed = parse_ip_route_line(line);
+				if (!parsed) continue;
+				// 跳过完全没接口的
+				if (!parsed.iface) continue;
+				// 附表名
+				parsed.table_name = tbl.name;
+				parsed.table_id = tbl.id;
+				push(tbl_routes, parsed);
+			}
+		}
+		// 空表也保留（前端可选择显示），但可以选择过滤掉完全没路由的表
+		if (length(tbl_routes)) {
+			push(result, {
+				table_name: tbl.name,
+				table_id: tbl.id,
+				routes: tbl_routes
+			});
+		}
+	}
+
+	return result;
+}
+
+// 6. 读取并解析策略路由规则 (ip rule show)
+// 输出形如：
+//   0:     from all lookup local
+//   32766: from all lookup main
+//   200:   from 192.168.1.100 lookup 100
+//   500:   from 10.0.0.0/24 iif lan0 lookup 200
+//   700:   from 192.168.2.0/24 prohibit
+function get_route_rules() {
+	let rules = [];
+	let fd = popen("ip rule show 2>/dev/null");
+	if (fd) {
+		let text = fd.read('all');
+		fd.close();
+		let lns = get_lines(text);
+
+		for (let i = 0; i < length(lns); i++) {
+			let line = lns[i];
+			if (!trim(line)) continue;
+
+			// 分离优先级与剩余规则体
+			let colon_idx = index(line, ':');
+			if (colon_idx < 0) continue;
+
+			let priority = trim(substr(line, 0, colon_idx));
+			let body = trim(substr(line, colon_idx + 1));
+			let p = split_ws(body);
+			if (!length(p)) continue;
+
+			// 默认值
+			let from = 'all';
+			let to = 'all';
+			let iif = '-';
+			let oif = '-';
+			let action = '';
+			let target = '-';
+
+			for (let j = 0; j < length(p); j++) {
+				let tok = p[j];
+				if (tok == 'from' && j + 1 < length(p)) {
+					from = p[++j];
+				} else if (tok == 'to' && j + 1 < length(p)) {
+					to = p[++j];
+				} else if (tok == 'iif' && j + 1 < length(p)) {
+					iif = p[++j];
+				} else if (tok == 'oif' && j + 1 < length(p)) {
+					oif = p[++j];
+				} else if (tok == 'lookup' && j + 1 < length(p)) {
+					action = 'lookup';
+					target = p[++j];
+				} else if (tok == 'goto' && j + 1 < length(p)) {
+					action = 'goto';
+					target = p[++j];
+				} else if (tok == 'prohibit' || tok == 'unreachable' ||
+				           tok == 'throw' || tok == 'blackhole' || tok == 'nat') {
+					action = tok;
+				}
+				// 其他未识别 token（如 uidrange、uid、tos、fwmark、ipproto 等）保留在 body 文本里即可
+			}
+
+			if (!action) action = 'lookup';
+
+			push(rules, {
+				priority: priority,
+				from: from,
+				to: to,
+				iif: iif,
+				oif: oif,
+				action: action,
+				target: target,
+				raw: body
+			});
+		}
+	}
+	return rules;
+}
+
 return {
 	'luci.onliner': {
 		getOnlineUsers: {
@@ -212,6 +435,16 @@ return {
 		getOnlineUserlist: {
 			call: function() {
 				return { userlist: get_userlist() };
+			}
+		},
+		getRouteTable: {
+			call: function() {
+				return { routetable: get_route_table() };
+			}
+		},
+		getRouteRules: {
+			call: function() {
+				return { routerules: get_route_rules() };
 			}
 		}
 	}
