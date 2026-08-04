@@ -5,7 +5,9 @@
 			"ubus": {
 				"luci.onliner": [
 					"getOnlineUsers",
-					"getOnlineUserlist"
+					"getOnlineUserlist",
+					"getRouteTable",
+					"getRouteRules"
 				]
 			},
 			"uci": [
