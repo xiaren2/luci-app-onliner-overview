@@ -1,4 +1,4 @@
-name: Build luci-app-onliner-overview Multi-Arch
+name: Build luci-app-onliner-overview new
 
 on:
   workflow_dispatch:
